@@ -1,5 +1,5 @@
 import pathlib
-from dash import Dash, html, dcc, dash_table, Input, Output, callback
+from dash import Dash, html, dcc, dash_table, Input, Output, callback, ctx
 # import dash_auth
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
@@ -235,14 +235,14 @@ app.layout = html.Div(
 
     dbc.Container([
         html.H3('Выберите предмет анализа'),
-        dcc.Dropdown(['Category_3', 'Бренд', 'Тренд'], 'Category_3', id='selector_drop', # 'Продавцы'
+        dcc.Dropdown(['Category_3', 'Бренд', 'Тренд', 'Ценовая сегментация'], 'Category_3', id='selector_drop', # 'Продавцы'
                      placeholder="Выберите категорию",
                      style={'width': '500px'}),
         html.Br(),
 
     ]),
 
-    dbc.Container([html.H3('Для тренда'),dcc.Dropdown(['Продаж', 'Выручка', 'Товаров', 'Товаров с продажами', 'Число брендов',
+    dbc.Container([html.H4('Доп'), dcc.Dropdown(['Продаж', 'Выручка', 'Товаров', 'Товаров с продажами', 'Число брендов',
                                  'Брендов с продажами', 'Число селлеров', 'Селлеров с продажами', 'Выручка на товар'
                                  ], id='graph_selector',
                      placeholder="...", multi=True,
@@ -253,6 +253,19 @@ app.layout = html.Div(
         dcc.Graph(
                 id='pie_graph'
             )
+    ]),
+
+    dbc.Container([
+    html.Div(
+            [dcc.Input(id='input_min', type='number', value=0),
+            dcc.RangeSlider(id='range_slider', min=0, max=30,),
+            dcc.Input(id='input_max', type='number', value=30),
+            html.Div([], style={"grid-template-columns": "30%"}),
+            html.Div([html.H6('Сегментов'), dcc.Input(id="input_segm", type="number", value=15, min=2, max=50,)],
+                     style={"display": "grid", "grid-template-columns": "30% 20%"})
+             ],
+            style={"display": "grid", "grid-template-columns": "10% 50% 10% 2% 28%"}
+          )
     ]),
 
     dbc.Container([dash_table.DataTable(
@@ -286,6 +299,7 @@ def update_cat1(bu):
     relevant_cat1_options_list = [{'label': x, 'value': x} for x in relevant_cat1_options]
     return relevant_cat1_options_list
 
+
 # a callback from the Category_1 dropdown to the Category_2 Dropdown
 @app.callback(
     Output('category_2', 'options'),
@@ -295,6 +309,7 @@ def update_cat2(category_1):
     relevant_cat2_options = cat2_val[cat2_val['Category_1'] == category_1]['Category_2'].values.tolist()
     relevant_cat2_options_list = [{'label': x, 'value': x} for x in relevant_cat2_options]
     return relevant_cat2_options_list
+
 
 # update Category data
 @app.callback(
@@ -330,13 +345,17 @@ def update_df(category_2):
     new_main = new_main.head(500)
     return new_main.to_dict('records'), [{"name": i, "id": i, "deletable": True, "selectable": True} for i in new_main.columns]
 
+
+# update Category for each dropdown select
 @app.callback(
     Output('subcat_table', 'data'), Output('subcat_table', 'columns'),
     Input('selector_drop', 'value'),
+    Input('category_1', 'value'),
     Input('category_2', 'value'),
+    Input('input_segm', 'value'),
     [Input('tbl2', 'data'),
      Input('tbl2', 'columns')])
-def choose_analysisarea(selector_drop, category_2, rows, columns):
+def choose_analysisarea(selector_drop, category_1, category_2, input_segm, rows, columns):
     df_area = pd.DataFrame(rows, columns=[c['name'] for c in columns])
     if selector_drop == 'Category_3':
         subcat_analysis = df_area.groupby(['Category_2', 'Category_3'], as_index=False).agg(
@@ -467,17 +486,17 @@ def choose_analysisarea(selector_drop, category_2, rows, columns):
                [{"name": i, "id": i, "deletable": True, "selectable": True} for i in brand_analysis.columns]
 
     elif selector_drop == 'Тренд':
-        new_main = main[(main['Category_2'] == category_2)][
+        new_main = main[(main['Category_1'] == category_1) & (main['Category_2'] == category_2)][
             ['unique_id', 'load_date', 'images', 'url', 'name', 'Category_1', 'Category_2', 'Category_3',
              'categoryName', 'brand_name', 'availableQuantity',
              'RewiewsCount', 'averageRating', 'sellingPrice', 'discountedPrice']].drop_duplicates()
         available_product = \
-            main[(main['Category_2'] == category_2)].groupby(
+            main[(main['Category_1'] == category_1) & (main['Category_2'] == category_2)].groupby(
                 ['unique_id'], as_index=False)['positive_availableQuantity'].sum()
 
-        sales_product = main[(main['Category_2'] == category_2)].groupby(
+        sales_product = main[(main['Category_1'] == category_1) & (main['Category_2'] == category_2)].groupby(
             ['unique_id'], as_index=False)['Продажи'].sum()
-        revenue_product = main[(main['Category_2'] == category_2)].groupby(
+        revenue_product = main[(main['Category_1'] == category_1) & (main['Category_2'] == category_2)].groupby(
             ['unique_id'], as_index=False)['Выручка'].sum()
 
         new_main = new_main.merge(available_product, on='unique_id', how='left').merge(
@@ -525,7 +544,6 @@ def choose_analysisarea(selector_drop, category_2, rows, columns):
             'brand_id': 'nunique'}).rename(columns={'brand_id': 'Число брендов'}),
                                               left_on=['День'], right_on=['load_date'], how='left').drop(['load_date'],
                                                                                                          axis=1)
-
         trend_analysis = trend_analysis.merge(
             main[main['Продажи'] > 0].groupby(['load_date'], as_index=False).agg(
                 {'brand_id': 'nunique'}).rename(columns={'brand_id': 'Брендов с продажами'}),
@@ -541,15 +559,82 @@ def choose_analysisarea(selector_drop, category_2, rows, columns):
         return trend_analysis.to_dict('records'), \
                [{"name": i, "id": i, "deletable": True, "selectable": True} for i in trend_analysis.columns]
 
+    elif selector_drop == 'Ценовая сегментация':
+        df_prices = main[(main['Category_1'] == category_1) & (main['Category_2'] == category_2)].drop_duplicates()
+        days_all = main['load_date'].nunique()
+        days_instock = df_prices[(df_prices['Товары в движении'] > 0)]['load_date'].nunique()
+
+        df_prices['price_bucket'] = pd.qcut(df_prices['sellingPrice'], input_segm, duplicates='drop')
+
+        df_prices_group = df_prices.groupby('price_bucket').agg(
+            {
+                'Продажи': 'sum',
+                'Выручка': 'sum',
+                'unique_id': 'nunique',
+                'brand_id': 'nunique',
+                'merchantId': 'nunique'
+            }).rename(columns={'unique_id': 'Товаров', 'brand_id': 'Брендов', 'merchantId': 'Селлеров'})
+
+        df_prices_t = df_prices[df_prices['Продажи'] > 0].groupby('price_bucket', as_index=False).agg(
+            {'unique_id': 'nunique',
+             'brand_id': 'nunique',
+             'merchantId': 'nunique'}).rename(
+            columns={'unique_id': 'Товаров с продажами', 'brand_id': 'Брендов с продажами',
+                     'merchantId': 'Селлеров с продажами'})
+
+        df_prices_group = df_prices_group.merge(df_prices_t, on='price_bucket', how='left')
+
+        df_prices_group['Выручка на товар'] = np.where(
+            df_prices_group['Товаров с продажами'] == 0, 0,
+            df_prices_group['Выручка'] / df_prices_group['Товаров с продажами'])
+
+        df_prices_group['От'] = df_prices_group['price_bucket'].apply(lambda x: x.left)
+        df_prices_group['До'] = df_prices_group['price_bucket'].apply(lambda x: x.right)
+        df_prices_group['Потенциал'] = df_prices_group['Выручка'] / days_instock * days_all
+        df_prices_group['Потенциал'] = round(df_prices_group['Потенциал'], 0).astype(int)
+        df_prices_group['Упущенная выручка'] = df_prices_group['Потенциал'] - df_prices_group['Выручка']
+        df_prices_group['Упущенная выручка'] = round(df_prices_group['Упущенная выручка'], 0).astype(int)
+        df_prices_group['Упущенная выручка %'] = np.where(df_prices_group['Потенциал']==0, 0,
+            df_prices_group['Упущенная выручка'] / df_prices_group['Потенциал'] * 100)
+
+        df_prices_group = df_prices_group[['От', 'До', 'Продажи', 'Выручка', 'Потенциал', 'Упущенная выручка',
+                                           'Упущенная выручка %', 'Товаров', 'Товаров с продажами', 'Брендов',
+                                           'Брендов с продажами',
+                                           'Селлеров', 'Селлеров с продажами', 'Выручка на товар']]
+
+        df_prices_group['Выручка'] = round(df_prices_group['Выручка'], 0).astype(int)
+        df_prices_group['Выручка на товар'] = round(df_prices_group['Выручка на товар'], 0).astype(int)
+        df_prices_group['От'] = round(df_prices_group['От'].astype(float), 0).astype(int)
+        df_prices_group['До'] = round(df_prices_group['До'].astype(float), 0).astype(int)
+        df_prices_group['Упущенная выручка %'] = round(df_prices_group['Упущенная выручка %'], 0)
+
+        return df_prices_group.to_dict('records'), [{"name": i, "id": i, "deletable": True, "selectable": True} for i in
+                                                    df_prices_group.columns]
+'''
+@app.callback(
+    [Output('input_min', 'value'),
+    Output('input_max', 'value')],
+    Input('selector_drop', 'value'),
+    [Input('subcat_table', 'data'),
+     Input('subcat_table', 'columns')])
+def set_slider(selector_drop, rows, columns):
+    if selector_drop == 'Ценовая сегментация':
+        df_slider = pd.DataFrame(rows, columns=[c['name'] for c in columns])
+'''
+
 
 @app.callback(
-    Output('pie_graph', 'figure'),
+    Output('pie_graph', 'figure'), [Output(component_id='range_slider', component_property='min'),
+     Output(component_id='range_slider', component_property='max')],
+
     [Input('subcat_table', 'data'),
      Input('subcat_table', 'columns')],
-   Input('selector_drop', 'value'),
-   Input('graph_selector', 'value')
+    Input('selector_drop', 'value'),
+    Input('graph_selector', 'value'),
+    Input('category_2', 'value')
     )
-def display_firstgraph(rows, columns, selector_drop, graph_selector):
+
+def display_firstgraph(rows, columns, selector_drop, graph_selector, category_2):
     # print('row', rows)
     # print('columns', columns)
     subcat_analysis_gr = pd.DataFrame(rows, columns=[c['name'] for c in columns])
@@ -564,7 +649,7 @@ def display_firstgraph(rows, columns, selector_drop, graph_selector):
                            name=val, fill='tonexty',#secondary_y=True,
                            mode='lines+markers'
                            ))
-        return fig
+        return fig, 0, 0
     elif (selector_drop == 'Category_3') or (selector_drop == 'Бренд'):
         fig = make_subplots(rows=1, cols=2, specs=[[{'type': 'domain'}, {'type': 'domain'}]])
         # print(selector_drop)
@@ -586,7 +671,59 @@ def display_firstgraph(rows, columns, selector_drop, graph_selector):
                               annotations=[dict(text='Продажи', x=0.17, y=0.5, font_size=20, showarrow=False),
                                            dict(text='Выручка', x=0.82, y=0.5, font_size=20, showarrow=False)])
 
-        return fig
+        return fig, 0, 0
+
+    elif selector_drop == 'Ценовая сегментация':
+        subcat_analysis_gr['segments'] = subcat_analysis_gr['От'].astype(str) + ' - ' + subcat_analysis_gr['До'].astype(str)
+
+        
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+        fig.add_trace(
+            go.Bar(x=subcat_analysis_gr['segments'].values,
+                   y=subcat_analysis_gr['Продажи'].values,
+                   name='Продажи', marker_color='lightsalmon', offsetgroup=1), secondary_y=False
+                       )
+        fig.add_trace(
+            go.Bar(x=subcat_analysis_gr['segments'].values,
+                   y=subcat_analysis_gr['Выручка'].values,
+                   name='Выручка', marker_color='#81F573', offsetgroup=2), secondary_y=True
+                   )
+        
+        fig.update_yaxes(color='#EB9154', secondary_y=False)
+        fig.update_yaxes(color='#0AF573', secondary_y=True)
+        fig.update_layout(title_text=f"Ценовая сегментация по {category_2}", barmode='group',
+                          bargroupgap=0.1)
+
+
+        return fig, subcat_analysis_gr['От'].min(), subcat_analysis_gr['До'].max()
+
+'''
+@app.callback([Output('input_min', 'value'),
+               Output('input_max', 'value')],
+              [Input(component_id='range_slider', component_property='min'),
+              Input(component_id='range_slider', component_property='max')])
+def set_inputs(min_slider, max_slider):
+    return min_slider, max_slider
+'''
+
+@app.callback(
+    Output("input_min", "value"),
+    Output("input_max", "value"),
+    Output("range_slider", "value"),
+    Input("range_slider", "value"),
+    [Input(component_id='range_slider', component_property='min'),
+    Input(component_id='range_slider', component_property='max')]
+)
+def callback(slider, min_slider, max_slider):
+    trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
+
+    start_value = min_slider if trigger_id == "input_min" else slider[0]
+    end_value = max_slider if trigger_id == "input_max" else slider[1]
+    slider_value = slider if trigger_id == "range_slider" else [start_value, end_value]
+
+    return start_value, end_value, slider_value
+
 
 if __name__ == '__main__':
-    app.run_server(debug=True)
+    app.run_server(host="0.0.0.0", port=8000, debug=True)
+    # app.run_server(debug=True)
